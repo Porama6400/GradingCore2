@@ -1,0 +1,19 @@
+option go_package = "./protorin";
+
+service Rin {
+  rpc Compile(Source) returns (Bytes) {}
+  rpc Test(Source) returns (Bytes) {}
+  rpc Shutdown(Empty) returns (Empty){}
+}
+
+
+message Empty {
+
+}
+message Source {
+  required bytes source = 1;
+}
+
+message Bytes {
+  required bytes data = 1;
+}
