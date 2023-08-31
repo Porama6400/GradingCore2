@@ -8,63 +8,67 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"log"
+	"sync"
 	"time"
 )
 
-// Service should remain on main thread at ALL TIME
 type Service struct {
-	Concurrency  int
 	RunningList  []*ContainerInfo
 	Runner       *DockerRunner
 	PortExternal int
+	Running      bool
+	Lock         sync.Mutex
 }
 
-func NewService(concurrency int) (*Service, error) {
+func NewService() (*Service, error) {
 	runner, err := NewDockerRunner()
 	if err != nil {
 		return nil, err
 	}
 
 	return &Service{
-		Concurrency:  concurrency,
-		RunningList:  make([]*ContainerInfo, concurrency),
+		RunningList:  make([]*ContainerInfo, 1, 16),
 		Runner:       runner,
 		PortExternal: 8888,
+		Running:      true,
+		Lock:         sync.Mutex{},
 	}, nil
 }
 
-func (r *Service) findEmptySlot() (int, error) {
-	for i := 0; i < r.Concurrency; i++ {
-		if r.RunningList[i] == nil {
-			return i, nil
+func (s *Service) findEmptySlot() int {
+	for i := 0; i < len(s.RunningList); i++ {
+		if s.RunningList[i] == nil {
+			return i
 		}
 	}
-	return 0, errors.New("no container slot available")
+
+	s.RunningList = append(s.RunningList, nil)
+	return len(s.RunningList) - 1
 }
 
-func (r *Service) Create(ctx context.Context, template *ContainerTemplate) (*ContainerInfo, error) {
-	if r.PortExternal == 0 {
+func (s *Service) Create(ctx context.Context, template *ContainerTemplate) (*ContainerInfo, error) {
+	if s.PortExternal == 0 {
 		return nil, errors.New("invalid configuration, tried to set external port to 0")
 	}
 
+	s.Lock.Lock()
 	startTime := time.Now()
+	slot := s.findEmptySlot()
+	log.Println("allocated", slot)
 
-	slot, err := r.findEmptySlot()
-	if err != nil {
-		return nil, err
-	}
-
-	info, err := r.Runner.Start(ctx, &ContainerStartRequest{
+	info, err := s.Runner.Start(ctx, &ContainerStartRequest{
 		Image:        template.Image,
 		Slot:         slot,
 		PortInternal: template.PortInternal,
-		PortExternal: r.PortExternal + slot,
+		PortExternal: s.PortExternal + slot,
 	})
 
 	if err != nil {
+		s.Lock.Unlock()
 		return nil, err
 	}
-	r.RunningList[slot] = info
+	s.RunningList[slot] = info
+	s.Lock.Unlock()
 
 	connectionString := fmt.Sprintf("127.0.0.1:%d", info.Request.PortExternal)
 	conn, err := grpc.Dial(connectionString, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -78,9 +82,8 @@ func (r *Service) Create(ctx context.Context, template *ContainerTemplate) (*Con
 	return info, nil
 }
 
-func (r *Service) Destroy(ctx context.Context, slot int) error {
-	info := r.RunningList[slot]
-	r.RunningList[slot] = nil
+func (s *Service) Destroy(ctx context.Context, info *ContainerInfo) error {
+	slot := info.Request.Slot
 
 	if info.GrpcClient != nil {
 		_, err := info.GrpcClient.Shutdown(ctx, &protorin.Empty{})
@@ -100,18 +103,20 @@ func (r *Service) Destroy(ctx context.Context, slot int) error {
 		return fmt.Errorf("tried to stop non-existing container slot %d", slot)
 	}
 
-	err := r.Runner.Stop(ctx, info)
+	err := s.Runner.Stop(ctx, info)
 	if err != nil {
 		return fmt.Errorf("failed to stop a container %w", err)
 	}
 
 	log.Printf("container %s (%d) shutdown ", info.ContainerId, info.Request.Slot)
+	s.RunningList[slot] = nil
 	return nil
 }
 
-func (r *Service) CountRunning() int {
+func (s *Service) CountRunning() int {
+
 	count := 0
-	for _, info := range r.RunningList {
+	for _, info := range s.RunningList {
 		if info != nil {
 			count++
 		}
@@ -119,19 +124,43 @@ func (r *Service) CountRunning() int {
 	return count
 }
 
-func (r *Service) CleanUp(ctx context.Context) error {
-	return r.Runner.CleanUp(ctx)
+func (s *Service) CleanUp(ctx context.Context) error {
+	return s.Runner.CleanUp(ctx)
 }
 
-func (r *Service) Shutdown(ctx context.Context) {
-	for i, info := range r.RunningList {
-		if r.RunningList[i] == nil {
+func (s *Service) Shutdown(ctx context.Context) error {
+	for i, info := range s.RunningList {
+		if s.RunningList[i] == nil {
 			continue
 		}
 
-		err := r.Destroy(ctx, i)
+		err := s.Destroy(ctx, info)
 		if err != nil {
 			fmt.Printf("error while stopping container %s %v\n", info.ContainerId, err)
 		}
+	}
+
+	return nil
+}
+
+func (s *Service) Tick() {
+	for _, info := range s.RunningList {
+		if info == nil {
+			continue
+		}
+
+		lockSuccess := info.Lock.TryLock()
+		if !lockSuccess {
+			continue
+		}
+
+		if info.WaitForShutdown {
+			err := s.Destroy(context.Background(), info)
+
+			if err != nil {
+				log.Println("error while shutting down", info.ContainerId, err)
+			}
+		}
+		info.Lock.Unlock()
 	}
 }

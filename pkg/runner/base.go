@@ -15,7 +15,7 @@ type ContainerInfo struct {
 	GrpcConnection  *grpc.ClientConn
 	GrpcClient      protorin.RinClient
 	WaitForShutdown bool
-	Lock            sync.RWMutex
+	Lock            sync.Mutex
 }
 
 type ContainerStartRequest struct {
@@ -31,6 +31,7 @@ type Runner interface {
 }
 
 type ContainerTemplate struct {
-	Image        string
-	PortInternal int
+	Id           string `json:"id"`
+	Image        string `json:"image"`
+	PortInternal int    `json:"portInternal"`
 }

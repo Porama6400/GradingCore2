@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const Prefix = "runner-"
+
 type DockerRunner struct {
 	Client *client.Client
 }
@@ -45,7 +47,7 @@ func (r *DockerRunner) createPortConfig(port int, portExt int) (nat.PortSet, nat
 
 func (r *DockerRunner) Start(ctx context.Context, request *ContainerStartRequest) (*ContainerInfo, error) {
 	slot := request.Slot
-	slotName := "runner-" + strconv.FormatInt(int64(slot), 10)
+	slotName := fmt.Sprintf("%s%d", Prefix, slot)
 
 	portSet, portMap := r.createPortConfig(request.PortInternal, request.PortExternal)
 	cfg := container.Config{
@@ -96,7 +98,8 @@ func (r *DockerRunner) CleanUp(ctx context.Context) error {
 
 	for _, c := range list {
 		names := c.Names
-		if len(names) > 0 && strings.HasPrefix(names[0], "/runner-") {
+		log.Println(names)
+		if len(names) > 0 && strings.HasPrefix(names[0], "/"+Prefix) {
 			log.Printf("found stray runner container %s", names[0])
 
 			err := r.Client.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{

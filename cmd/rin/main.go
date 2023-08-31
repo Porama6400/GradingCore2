@@ -2,10 +2,13 @@ package main
 
 import (
 	"GradingCore2/pkg/protorin"
+	"GradingCore2/pkg/scrubber"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"google.golang.org/grpc"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -22,7 +25,7 @@ type Handler struct {
 	Server         *grpc.Server
 }
 
-func (h *Handler) Compile(_ context.Context, src *protorin.Source) (*protorin.Bytes, error) {
+func (h *Handler) Compile(_ context.Context, src *protorin.Source) (*protorin.CompileResult, error) {
 	file, err := os.Create(h.SourcePath)
 	if err != nil {
 		return nil, err
@@ -38,15 +41,14 @@ func (h *Handler) Compile(_ context.Context, src *protorin.Source) (*protorin.By
 	command.Stdout = &buffer
 	command.Stderr = &buffer
 	err = command.Run()
-	result := protorin.Bytes{Data: buffer.Bytes()}
-	if err != nil {
-		return &result, err
-	}
+	dataBytes := buffer.Bytes()
+	result := protorin.CompileResult{Data: dataBytes}
 
+	log.Println(string(dataBytes), err)
 	return &result, nil
 }
 
-func (h *Handler) Test(_ context.Context, src *protorin.Source) (*protorin.Bytes, error) {
+func (h *Handler) Test(_ context.Context, src *protorin.TestContext) (*protorin.TestResult, error) {
 	file, err := os.Create(h.TestInputPath)
 	if err != nil {
 		return nil, err
@@ -57,16 +59,36 @@ func (h *Handler) Test(_ context.Context, src *protorin.Source) (*protorin.Bytes
 		return nil, err
 	}
 
+	testFile, err := os.Open("test.txt")
+	if err != nil {
+		return nil, err
+	}
+	defer func(testFile *os.File) {
+		err := testFile.Close()
+		if err != nil {
+			log.Println(err)
+		}
+	}(testFile)
+
 	command := exec.Command(h.TestCommand[0], h.TestCommand[1:]...)
 	buffer := bytes.Buffer{}
+	command.Stdin = testFile
 	command.Stdout = &buffer
 	command.Stderr = &buffer
 	err = command.Run()
-	result := protorin.Bytes{Data: buffer.Bytes()}
-	if err != nil {
-		return &result, err
+
+	dataBytes := buffer.Bytes()
+	dataBytes = scrubber.Scrub(dataBytes)
+	hashAlgo := sha256.New()
+	hashAlgo.Write(dataBytes)
+	hashBytes := hashAlgo.Sum(nil)
+
+	result := protorin.TestResult{Hash: hashBytes}
+	if !src.GetOptHashOnly() {
+		result.Result = dataBytes
 	}
 
+	log.Println(string(dataBytes), err)
 	return &result, nil
 }
 

@@ -22,8 +22,8 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RinClient interface {
-	Compile(ctx context.Context, in *Source, opts ...grpc.CallOption) (*Bytes, error)
-	Test(ctx context.Context, in *Source, opts ...grpc.CallOption) (*Bytes, error)
+	Compile(ctx context.Context, in *Source, opts ...grpc.CallOption) (*CompileResult, error)
+	Test(ctx context.Context, in *TestContext, opts ...grpc.CallOption) (*TestResult, error)
 	Shutdown(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 }
 
@@ -35,8 +35,8 @@ func NewRinClient(cc grpc.ClientConnInterface) RinClient {
 	return &rinClient{cc}
 }
 
-func (c *rinClient) Compile(ctx context.Context, in *Source, opts ...grpc.CallOption) (*Bytes, error) {
-	out := new(Bytes)
+func (c *rinClient) Compile(ctx context.Context, in *Source, opts ...grpc.CallOption) (*CompileResult, error) {
+	out := new(CompileResult)
 	err := c.cc.Invoke(ctx, "/Rin/Compile", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -44,8 +44,8 @@ func (c *rinClient) Compile(ctx context.Context, in *Source, opts ...grpc.CallOp
 	return out, nil
 }
 
-func (c *rinClient) Test(ctx context.Context, in *Source, opts ...grpc.CallOption) (*Bytes, error) {
-	out := new(Bytes)
+func (c *rinClient) Test(ctx context.Context, in *TestContext, opts ...grpc.CallOption) (*TestResult, error) {
+	out := new(TestResult)
 	err := c.cc.Invoke(ctx, "/Rin/Test", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -66,8 +66,8 @@ func (c *rinClient) Shutdown(ctx context.Context, in *Empty, opts ...grpc.CallOp
 // All implementations must embed UnimplementedRinServer
 // for forward compatibility
 type RinServer interface {
-	Compile(context.Context, *Source) (*Bytes, error)
-	Test(context.Context, *Source) (*Bytes, error)
+	Compile(context.Context, *Source) (*CompileResult, error)
+	Test(context.Context, *TestContext) (*TestResult, error)
 	Shutdown(context.Context, *Empty) (*Empty, error)
 	mustEmbedUnimplementedRinServer()
 }
@@ -76,10 +76,10 @@ type RinServer interface {
 type UnimplementedRinServer struct {
 }
 
-func (UnimplementedRinServer) Compile(context.Context, *Source) (*Bytes, error) {
+func (UnimplementedRinServer) Compile(context.Context, *Source) (*CompileResult, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Compile not implemented")
 }
-func (UnimplementedRinServer) Test(context.Context, *Source) (*Bytes, error) {
+func (UnimplementedRinServer) Test(context.Context, *TestContext) (*TestResult, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Test not implemented")
 }
 func (UnimplementedRinServer) Shutdown(context.Context, *Empty) (*Empty, error) {
@@ -117,7 +117,7 @@ func _Rin_Compile_Handler(srv interface{}, ctx context.Context, dec func(interfa
 }
 
 func _Rin_Test_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Source)
+	in := new(TestContext)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func _Rin_Test_Handler(srv interface{}, ctx context.Context, dec func(interface{
 		FullMethod: "/Rin/Test",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RinServer).Test(ctx, req.(*Source))
+		return srv.(RinServer).Test(ctx, req.(*TestContext))
 	}
 	return interceptor(ctx, in, info, handler)
 }

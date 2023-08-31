@@ -1,93 +1,98 @@
+//go:generate protoc ../../rin.proto --go_out=../../pkg/ --go-grpc_out=../../pkg/ -I ../../
+
 package main
 
 import (
-	"GradingCore2/pkg/protorin"
+	"GradingCore2/pkg/gateway"
+	"GradingCore2/pkg/grading"
 	"GradingCore2/pkg/runner"
 	"context"
+	"encoding/json"
 	"log"
+	"os"
 	"time"
 )
 
+func hela() {
+	request := grading.Request{
+		Language:  "go",
+		SourceUrl: "base64://cGFja2FnZSBtYWluCgppbXBvcnQgImZtdCIKCmZ1bmMgbWFpbigpIHsKCWZtdC5QcmludGxuKCJIZWxsbyEiKQp9",
+		TestCase:  make([]grading.TestCase, 0),
+	}
+
+	request.TestCase = append(request.TestCase, grading.TestCase{
+		Input:  "base64://IA==",
+		Output: "base64://SGVsbG8h",
+	})
+
+	jsonBytes, err := json.Marshal(request)
+	if err == nil {
+		log.Println(string(jsonBytes))
+	}
+}
+
+type Configuration struct {
+	TemplateMap grading.TemplateMap `json:"templates"`
+}
+
+func LoadConfig() (*Configuration, error) {
+	file, err := os.ReadFile("config.json")
+	if err != nil {
+		return nil, err
+	}
+
+	var Config Configuration
+	err = json.Unmarshal(file, &Config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Config, nil
+}
+
 func main() {
-	service, err := runner.NewService(16)
+	config, err := LoadConfig()
 	if err != nil {
 		panic(err)
 	}
-	err = service.CleanUp(context.Background())
+	hela()
+
+	runnerService, err := runner.NewService()
 	if err != nil {
-		log.Printf("failed to run startup cleanup %v", err)
+		panic(err)
 	}
 
-	defer service.Shutdown(context.Background())
+	err = runnerService.CleanUp(context.Background())
+	if err != nil {
+		panic(err)
+	}
 
-	for i := 0; i < 20; i++ {
-		ctx := context.Background()
-		finalIteration := i
-
-		con, err := service.Create(ctx, &runner.ContainerTemplate{
-			Image:        "rin_go",
-			PortInternal: 8888,
-		})
+	defer func(runnerService *runner.Service, ctx context.Context) {
+		err := runnerService.Shutdown(ctx)
 		if err != nil {
-			log.Printf("error on iteration %d %v\n", finalIteration, err)
-			continue
+			log.Println(err)
 		}
+	}(runnerService, context.Background())
 
-		go func() {
-			con.Lock.Lock()
-			defer con.Lock.Unlock()
-
-			compile, err := con.GrpcClient.Compile(
-				ctx,
-				&protorin.Source{
-					Source: []byte("package main\n\nfunc main(){\nprintln(\"Hello world!\")\n}"),
-				},
-			)
-			if err != nil {
-				log.Printf("failed to compile %d %v %s\n", finalIteration, err, compile)
-			} else {
-				log.Println("compiled:", finalIteration, string(compile.Data))
-			}
-
-			test, err := con.GrpcClient.Test(ctx, &protorin.Source{
-				Source: []byte(""),
-			})
-			if err != nil {
-				log.Printf("failed to run test %d %e %s\n", finalIteration, err, test)
-			} else {
-				log.Println("result:", finalIteration, string(test.Data))
-			}
-
-			time.Sleep(10 * time.Second)
-
-			con.WaitForShutdown = true
-		}()
+	gradingService, err := grading.NewService(runnerService, config.TemplateMap)
+	if err != nil {
+		panic(err)
 	}
 
-	for service.CountRunning() > 0 {
-		time.Sleep(1 * time.Second)
-		for _, info := range service.RunningList {
-			if info == nil {
-				continue
+	gatewayService := gateway.NewService("amqp://root:password@58.11.14.67:5672/", 8, gradingService)
+	go func() {
+		for gatewayService.Running {
+			err := gatewayService.Tick()
+			if err != nil {
+				log.Println(err)
 			}
-
-			lockSuccess := info.Lock.TryRLock()
-			if !lockSuccess {
-				continue
-			}
-
-			shouldShutdown := info.WaitForShutdown
-			info.Lock.RUnlock()
-			if shouldShutdown {
-				info.Lock.Lock()
-				err := service.Destroy(context.Background(), info.Request.Slot)
-
-				if err != nil {
-					log.Println("error while shutting down ", info.ContainerId, err)
-				}
-
-				info.Lock.Unlock()
-			}
+			time.Sleep(250 * time.Millisecond)
 		}
+	}()
+
+	for runnerService.Running {
+		time.Sleep(250 * time.Millisecond)
+		runnerService.Tick()
 	}
+	log.Println("shutting down...")
 }

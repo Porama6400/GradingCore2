@@ -1,0 +1,14 @@
+{
+  "templates": {
+    "go": {
+      "id": "go",
+      "image": "rin_go",
+      "portInternal": 8888
+    },
+    "c": {
+      "id": "c",
+      "image": "rin_c",
+      "portInternal": 8888
+    }
+  }
+}
