@@ -25,6 +25,10 @@ type Handler struct {
 	Server         *grpc.Server
 }
 
+func (h *Handler) Ping(_ context.Context, _ *protorin.Empty) (*protorin.Empty, error) {
+	return &protorin.Empty{}, nil
+}
+
 func (h *Handler) Compile(_ context.Context, src *protorin.Source) (*protorin.CompileResult, error) {
 	file, err := os.Create(h.SourcePath)
 	if err != nil {

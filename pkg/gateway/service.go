@@ -4,6 +4,7 @@ import (
 	"GradingCore2/pkg/grading"
 	"context"
 	"encoding/json"
+	"fmt"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"log"
 	"sync"
@@ -83,6 +84,16 @@ func (s *Service) ConnectAmqp() error {
 		return err
 	}
 
+	//err = channel.Qos(4, 0, false)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//consume, err := channel.Consume(RequestQueueName, "", false, false, false, false, nil)
+	//if err != nil {
+	//	return err
+	//}
+
 	log.Println("AMQP connected", s.AmqpUrl)
 	return nil
 }
@@ -148,26 +159,33 @@ func (s *Service) HandleDelivery(delivery *amqp.Delivery) error {
 	if err != nil {
 		return err
 	}
-
-	grade, err := s.GradingService.Grade(ctx, &req)
+	log.Println("req", string(delivery.Body))
+	grade, gradingError := s.GradingService.Grade(ctx, &req)
 	if err != nil {
 		return err
+	} else {
+		err = s.Publish(ctx, grade, gradingError)
+		if err != nil {
+			return err
+		}
 	}
 
-	marshal, err := json.Marshal(grade)
+	return nil
+}
+
+func (s *Service) Publish(ctx context.Context, response *grading.Response, gradingError *grading.Error) error {
+	marshal, err := json.Marshal(response)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed marshal while publishing message to queue: %w", err)
 	}
-
-	log.Println(string(marshal))
+	log.Println("res", string(marshal))
 	message := amqp.Publishing{
 		Body: marshal,
 	}
 	err = s.AmqpChannel.PublishWithContext(ctx, ExchangeName, RoutingKeyResponse, false, false, message)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed publishing message to queue: %w", err)
 	}
-
 	return nil
 }
 

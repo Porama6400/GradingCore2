@@ -1,6 +1,7 @@
 option go_package = "./protorin";
 
 service Rin {
+  rpc Ping(Empty) returns (Empty) {}
   rpc Compile(Source) returns (CompileResult) {}
   rpc Test(TestContext) returns (TestResult) {}
   rpc Shutdown(Empty) returns (Empty){}

@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RinClient interface {
+	Ping(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 	Compile(ctx context.Context, in *Source, opts ...grpc.CallOption) (*CompileResult, error)
 	Test(ctx context.Context, in *TestContext, opts ...grpc.CallOption) (*TestResult, error)
 	Shutdown(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
@@ -33,6 +34,15 @@ type rinClient struct {
 
 func NewRinClient(cc grpc.ClientConnInterface) RinClient {
 	return &rinClient{cc}
+}
+
+func (c *rinClient) Ping(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/Rin/Ping", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *rinClient) Compile(ctx context.Context, in *Source, opts ...grpc.CallOption) (*CompileResult, error) {
@@ -66,6 +76,7 @@ func (c *rinClient) Shutdown(ctx context.Context, in *Empty, opts ...grpc.CallOp
 // All implementations must embed UnimplementedRinServer
 // for forward compatibility
 type RinServer interface {
+	Ping(context.Context, *Empty) (*Empty, error)
 	Compile(context.Context, *Source) (*CompileResult, error)
 	Test(context.Context, *TestContext) (*TestResult, error)
 	Shutdown(context.Context, *Empty) (*Empty, error)
@@ -76,6 +87,9 @@ type RinServer interface {
 type UnimplementedRinServer struct {
 }
 
+func (UnimplementedRinServer) Ping(context.Context, *Empty) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Ping not implemented")
+}
 func (UnimplementedRinServer) Compile(context.Context, *Source) (*CompileResult, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Compile not implemented")
 }
@@ -96,6 +110,24 @@ type UnsafeRinServer interface {
 
 func RegisterRinServer(s grpc.ServiceRegistrar, srv RinServer) {
 	s.RegisterService(&Rin_ServiceDesc, srv)
+}
+
+func _Rin_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RinServer).Ping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Rin/Ping",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RinServer).Ping(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Rin_Compile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -159,6 +191,10 @@ var Rin_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "Rin",
 	HandlerType: (*RinServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Ping",
+			Handler:    _Rin_Ping_Handler,
+		},
 		{
 			MethodName: "Compile",
 			Handler:    _Rin_Compile_Handler,

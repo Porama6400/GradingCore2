@@ -13,26 +13,11 @@ import (
 	"time"
 )
 
-func hela() {
-	request := grading.Request{
-		Language:  "go",
-		SourceUrl: "base64://cGFja2FnZSBtYWluCgppbXBvcnQgImZtdCIKCmZ1bmMgbWFpbigpIHsKCWZtdC5QcmludGxuKCJIZWxsbyEiKQp9",
-		TestCase:  make([]grading.TestCase, 0),
-	}
-
-	request.TestCase = append(request.TestCase, grading.TestCase{
-		Input:  "base64://IA==",
-		Output: "base64://SGVsbG8h",
-	})
-
-	jsonBytes, err := json.Marshal(request)
-	if err == nil {
-		log.Println(string(jsonBytes))
-	}
-}
-
 type Configuration struct {
 	TemplateMap grading.TemplateMap `json:"templates"`
+	AmqpUrl     string              `json:"amqp_url"`
+	Concurrency int                 `json:"concurrency"`
+	TickDelay   int                 `json:"tick_delay"`
 }
 
 func LoadConfig() (*Configuration, error) {
@@ -55,7 +40,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	hela()
 
 	runnerService, err := runner.NewService()
 	if err != nil {
@@ -79,14 +63,14 @@ func main() {
 		panic(err)
 	}
 
-	gatewayService := gateway.NewService("amqp://root:password@58.11.14.67:5672/", 8, gradingService)
+	gatewayService := gateway.NewService(config.AmqpUrl, config.Concurrency, gradingService)
 	go func() {
 		for gatewayService.Running {
 			err := gatewayService.Tick()
 			if err != nil {
 				log.Println(err)
 			}
-			time.Sleep(250 * time.Millisecond)
+			time.Sleep(time.Duration(config.TickDelay) * time.Millisecond)
 		}
 	}()
 

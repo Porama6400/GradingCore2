@@ -6,19 +6,15 @@ import (
 	"GradingCore2/pkg/runner"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"log"
 	"strings"
 	"time"
 )
-
-type Request struct {
-	Language  string            `json:"language"`
-	SourceUrl string            `json:"sourceUrl"`
-	TestCase  []TestCase        `json:"test"`
-	Metadata  map[string]string `json:"metadata"`
-}
 
 type TestCase struct {
 	Input  string `json:"input"`
@@ -26,15 +22,24 @@ type TestCase struct {
 }
 
 type ResultCase struct {
-	Hash string `json:"hash"`
-	Pass bool   `json:"pass"`
-	Time int64  `json:"time"`
+	Hash   string `json:"hash"`
+	Pass   bool   `json:"pass"`
+	Time   int64  `json:"time"`
+	Memory int64  `json:"memory"`
+}
+
+type Request struct {
+	Language  string                 `json:"language"`
+	SourceUrl string                 `json:"sourceUrl"`
+	TestCase  []TestCase             `json:"test"`
+	Metadata  map[string]interface{} `json:"metadata"`
 }
 
 type Response struct {
-	CompileOutput []byte            `json:"compileOutput"`
-	Result        []ResultCase      `json:"result"`
-	Metadata      map[string]string `json:"metadata"`
+	CompileOutput string                 `json:"compileOutput"`
+	Status        StatusCode             `json:"status"`
+	Result        []ResultCase           `json:"results"`
+	Metadata      map[string]interface{} `json:"metadata"`
 }
 
 type TemplateMap map[string]*runner.ContainerTemplate
@@ -45,6 +50,14 @@ type Service struct {
 	TemplateMap   TemplateMap
 }
 
+func (r *Response) WrapError(status StatusCode, err error) (*Response, *Error) {
+	r.Status = status
+	return r, &Error{
+		ErrorCode: status,
+		Wrap:      err,
+	}
+}
+
 func NewService(runnerService *runner.Service, templateMap TemplateMap) (*Service, error) {
 	return &Service{
 		RunnerService: runnerService,
@@ -52,22 +65,25 @@ func NewService(runnerService *runner.Service, templateMap TemplateMap) (*Servic
 	}, nil
 }
 
-func (s *Service) Grade(ctx context.Context, req *Request) (*Response, error) {
+func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
+	timedCtx, cancelFunc := context.WithTimeoutCause(ctx, 10*time.Second, &Error{ErrorCode: StatusFailTimeoutHard, Wrap: nil})
+	defer cancelFunc()
 	ctx = context.WithValue(ctx, "request", req)
 	resp := Response{
 		Result:   make([]ResultCase, len(req.TestCase)),
+		Status:   StatusUnknown,
 		Metadata: req.Metadata,
 	}
 	req.Language = strings.ToLower(req.Language)
 
 	template := s.TemplateMap[req.Language]
 	if template == nil {
-		return nil, fmt.Errorf("template for language %s not found", req.Language)
+		return resp.WrapError(StatusSystemFailMissingImage, fmt.Errorf("template for language %s not found", req.Language))
 	}
 
-	info, err := s.RunnerService.Create(ctx, template)
+	info, err := s.RunnerService.Create(timedCtx, template)
 	if err != nil {
-		return nil, err
+		return resp.WrapError(StatusSystemFailContainer, err)
 	}
 
 	defer func() {
@@ -77,46 +93,62 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, error) {
 		}
 	}()
 
-	source, err := s.Fetcher.Get(req.SourceUrl)
-	if err != nil {
-		return nil, err
+	containerStartSuccess, err := info.Wait(3 * time.Second)
+	if !containerStartSuccess {
+		return resp.WrapError(StatusSystemFailContainerPing, err)
 	}
 
-	compile, err := info.GrpcClient.Compile(ctx, &protorin.Source{Source: source})
-	if compile != nil {
-		resp.CompileOutput = compile.Data
+	source, err := s.Fetcher.Get(req.SourceUrl)
+	if err != nil {
+		return resp.WrapError(StatusSystemFailFetchFile, err)
+	}
+
+	compile, err := info.GrpcClient.Compile(timedCtx, &protorin.Source{Source: source})
+	if compile != nil && compile.Data != nil {
+		resp.CompileOutput = string(compile.Data)
 	}
 	if err != nil {
-		return nil, err
+		return resp.WrapError(StatusFailCompilation, err)
 	}
 
 	for index, test := range req.TestCase {
 		input, err := s.Fetcher.Get(test.Input)
 		if err != nil {
-			return nil, err
+			return resp.WrapError(StatusSystemFailFetchFile, err)
 		}
-		output, err := s.Fetcher.Get(test.Output)
+		outputExpected, err := s.Fetcher.Get(test.Output)
 		if err != nil {
-			return nil, err
+			return resp.WrapError(StatusSystemFailFetchFile, err)
 		}
 
-		hashOnly := true
+		outputExpectedHashProcessor := sha256.New()
+		outputExpectedHashProcessor.Write(outputExpected)
+		outputExpectedHash := outputExpectedHashProcessor.Sum(nil)
+
+		hashOnly := false
 		timeStart := time.Now()
-		data, err := info.GrpcClient.Test(ctx, &protorin.TestContext{Source: input, OptHashOnly: &hashOnly})
+		data, err := info.GrpcClient.Test(timedCtx, &protorin.TestContext{Source: input, OptHashOnly: &hashOnly})
 		if err != nil {
-			return nil, err
+			grpcStatusCode, ok := status.FromError(err)
+			if ok && grpcStatusCode.Code() == codes.DeadlineExceeded {
+				return resp.WrapError(StatusFailTimeoutHard, err)
+			} else {
+				return resp.WrapError(StatusSystemFail, err)
+			}
 		}
 		timeElapseMs := time.Now().Sub(timeStart).Milliseconds()
 
 		resultEntry := ResultCase{
-			Pass: bytes.Equal(data.Result, output),
-			Hash: base64.StdEncoding.EncodeToString(data.Hash),
-			Time: timeElapseMs,
+			Pass:   bytes.Equal(data.Hash, outputExpectedHash),
+			Hash:   base64.StdEncoding.EncodeToString(data.Hash),
+			Time:   timeElapseMs,
+			Memory: 0,
 		}
 		resp.Result[index] = resultEntry
-		log.Println(data.Result, output, data.Hash, timeElapseMs)
-		log.Println(string(data.Result), string(output))
+		//log.Println(data.Result, data.Hash, timeElapseMs)
+		//log.Println(outputExpected)
 	}
 
+	resp.Status = StatusCompleted
 	return &resp, nil
 }

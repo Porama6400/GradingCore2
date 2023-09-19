@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	_ "github.com/mattn/go-sqlite3"
 	"net/http"
 	"strings"
 )
@@ -19,6 +20,10 @@ func (s *Service) Get(url string) ([]byte, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send GET request to %s %w", url, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("failed to send GET request to %s: status code is %d", url, resp.StatusCode)
 	}
 
 	buffer := bytes.Buffer{}
