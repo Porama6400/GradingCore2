@@ -7,10 +7,11 @@ type StatusCode string
 const (
 	StatusCompleted StatusCode = "COMPLETED"
 
-	StatusFailCompilation StatusCode = "FAIL_COMPILATION"
-	StatusFailTimeout     StatusCode = "FAIL_TIMEOUT"
-	StatusFailTimeoutHard StatusCode = "FAIL_TIMEOUT_HARD"
-	StatusFailMemory      StatusCode = "FAIL_MEMORY"
+	StatusFailCompilation        StatusCode = "FAIL_COMPILATION"
+	StatusFailCompilationTimeout StatusCode = "FAIL_COMPILATION_TIMEOUT"
+	StatusFailTimeout            StatusCode = "FAIL_TIMEOUT"
+	StatusFailTimeoutHard        StatusCode = "FAIL_TIMEOUT_HARD"
+	StatusFailMemory             StatusCode = "FAIL_MEMORY"
 
 	StatusSystemFail              StatusCode = "SYSTEM_FAIL"
 	StatusSystemFailMissingImage  StatusCode = "SYSTEM_FAIL_MISSING_IMAGE"

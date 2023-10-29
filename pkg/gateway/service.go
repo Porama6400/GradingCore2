@@ -59,17 +59,17 @@ func (s *Service) ConnectAmqp() error {
 	}
 	s.AmqpChannel = channel
 
-	_, err = channel.QueueDeclare(RequestQueueName, false, false, false, false, nil)
+	_, err = channel.QueueDeclare(RequestQueueName, true, false, false, false, nil)
 	if err != nil {
 		return err
 	}
 
-	_, err = channel.QueueDeclare(ResponseQueueName, false, false, false, false, nil)
+	_, err = channel.QueueDeclare(ResponseQueueName, true, false, false, false, nil)
 	if err != nil {
 		return err
 	}
 
-	err = channel.ExchangeDeclare(ExchangeName, amqp.ExchangeTopic, false, false, false, false, nil)
+	err = channel.ExchangeDeclare(ExchangeName, amqp.ExchangeTopic, true, false, false, false, nil)
 	if err != nil {
 		return err
 	}
@@ -161,10 +161,11 @@ func (s *Service) HandleDelivery(delivery *amqp.Delivery) error {
 	}
 	log.Println("req", string(delivery.Body))
 	grade, gradingError := s.GradingService.Grade(ctx, &req)
-	if err != nil {
+	if gradingError != nil {
+		log.Println(gradingError)
 		return err
 	} else {
-		err = s.Publish(ctx, grade, gradingError)
+		err = s.Publish(ctx, grade)
 		if err != nil {
 			return err
 		}
@@ -173,7 +174,7 @@ func (s *Service) HandleDelivery(delivery *amqp.Delivery) error {
 	return nil
 }
 
-func (s *Service) Publish(ctx context.Context, response *grading.Response, gradingError *grading.Error) error {
+func (s *Service) Publish(ctx context.Context, response *grading.Response) error {
 	marshal, err := json.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed marshal while publishing message to queue: %w", err)

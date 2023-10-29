@@ -28,10 +28,16 @@ type ResultCase struct {
 	Memory int64  `json:"memory"`
 }
 
+type RequestSettings struct {
+	TimeLimit   int `json:"timeLimit"`
+	MemoryLimit int `json:"memoryLimit"`
+}
+
 type Request struct {
 	Language  string                 `json:"language"`
 	SourceUrl string                 `json:"sourceUrl"`
 	TestCase  []TestCase             `json:"test"`
+	Settings  RequestSettings        `json:"settings"`
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
@@ -65,9 +71,27 @@ func NewService(runnerService *runner.Service, templateMap TemplateMap) (*Servic
 	}, nil
 }
 
+const TimeLimitHard = 5 * time.Second
+const SystemTimeLimit = 3 * time.Second
+
 func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
-	timedCtx, cancelFunc := context.WithTimeoutCause(ctx, 10*time.Second, &Error{ErrorCode: StatusFailTimeoutHard, Wrap: nil})
-	defer cancelFunc()
+
+	caseTimeLimitSoft := time.Duration(req.Settings.TimeLimit) * time.Millisecond
+	if caseTimeLimitSoft == 0 {
+		caseTimeLimitSoft = TimeLimitHard
+	}
+
+	caseTimeLimitHard := caseTimeLimitSoft + time.Second
+	if caseTimeLimitHard > TimeLimitHard {
+		caseTimeLimitHard = TimeLimitHard
+	}
+	log.Println("grading", req.SourceUrl, " limits: ", caseTimeLimitSoft, caseTimeLimitHard)
+
+	timedSystemContext, cancelTimedSetupContext := context.WithTimeout(ctx, SystemTimeLimit)
+	defer cancelTimedSetupContext()
+	timedUserContext, cancelTimedUserContext := context.WithTimeoutCause(ctx, caseTimeLimitHard, &Error{ErrorCode: StatusFailTimeoutHard, Wrap: nil})
+	defer cancelTimedUserContext()
+
 	ctx = context.WithValue(ctx, "request", req)
 	resp := Response{
 		Result:   make([]ResultCase, len(req.TestCase)),
@@ -81,19 +105,19 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		return resp.WrapError(StatusSystemFailMissingImage, fmt.Errorf("template for language %s not found", req.Language))
 	}
 
-	info, err := s.RunnerService.Create(timedCtx, template)
+	runnerContainer, err := s.RunnerService.Create(timedSystemContext, template)
 	if err != nil {
 		return resp.WrapError(StatusSystemFailContainer, err)
 	}
 
 	defer func() {
-		destroyErr := s.RunnerService.Destroy(ctx, info)
+		destroyErr := s.RunnerService.Destroy(ctx, runnerContainer)
 		if destroyErr != nil {
-			log.Println("failed to destroy container", info.ContainerId, destroyErr)
+			log.Println("failed to destroy container", runnerContainer.ContainerId, destroyErr)
 		}
 	}()
 
-	containerStartSuccess, err := info.Wait(3 * time.Second)
+	containerStartSuccess, err := runnerContainer.Wait(SystemTimeLimit)
 	if !containerStartSuccess {
 		return resp.WrapError(StatusSystemFailContainerPing, err)
 	}
@@ -103,14 +127,20 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		return resp.WrapError(StatusSystemFailFetchFile, err)
 	}
 
-	compile, err := info.GrpcClient.Compile(timedCtx, &protorin.Source{Source: source})
+	compile, err := runnerContainer.GrpcClient.Compile(timedSystemContext, &protorin.Source{Source: source})
 	if compile != nil && compile.Data != nil {
 		resp.CompileOutput = string(compile.Data)
 	}
 	if err != nil {
-		return resp.WrapError(StatusFailCompilation, err)
+		fromError, ok := status.FromError(err)
+		if ok && fromError.Code() == codes.DeadlineExceeded {
+			return resp.WrapError(StatusFailCompilationTimeout, err)
+		} else {
+			return resp.WrapError(StatusFailCompilation, err)
+		}
 	}
 
+	caseTimeExceedAtleastOnce := false
 	for index, test := range req.TestCase {
 		input, err := s.Fetcher.Get(test.Input)
 		if err != nil {
@@ -127,7 +157,7 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 
 		hashOnly := false
 		timeStart := time.Now()
-		data, err := info.GrpcClient.Test(timedCtx, &protorin.TestContext{Source: input, OptHashOnly: &hashOnly})
+		data, err := runnerContainer.GrpcClient.Test(timedUserContext, &protorin.TestContext{Source: input, OptHashOnly: &hashOnly})
 		if err != nil {
 			grpcStatusCode, ok := status.FromError(err)
 			if ok && grpcStatusCode.Code() == codes.DeadlineExceeded {
@@ -136,12 +166,14 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 				return resp.WrapError(StatusSystemFail, err)
 			}
 		}
-		timeElapseMs := time.Now().Sub(timeStart).Milliseconds()
+		timeElapse := time.Now().Sub(timeStart)
+		caseTimeExceed := timeElapse > caseTimeLimitSoft
+		caseTimeExceedAtleastOnce = caseTimeExceedAtleastOnce || caseTimeExceed
 
 		resultEntry := ResultCase{
-			Pass:   bytes.Equal(data.Hash, outputExpectedHash),
+			Pass:   !caseTimeExceed && bytes.Equal(data.Hash, outputExpectedHash),
 			Hash:   base64.StdEncoding.EncodeToString(data.Hash),
-			Time:   timeElapseMs,
+			Time:   timeElapse.Milliseconds(),
 			Memory: 0,
 		}
 		resp.Result[index] = resultEntry
@@ -149,6 +181,10 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		//log.Println(outputExpected)
 	}
 
-	resp.Status = StatusCompleted
+	if caseTimeExceedAtleastOnce {
+		resp.Status = StatusFailTimeout
+	} else {
+		resp.Status = StatusCompleted
+	}
 	return &resp, nil
 }
