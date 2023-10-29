@@ -14,5 +14,9 @@ func ScrubString(data string) string {
 	for i := 0; i < splitlen; i++ {
 		split[i] = strings.TrimSuffix(split[i], "\r")
 	}
+	if split[splitlen-1] == "" {
+		split = split[0 : splitlen-1]
+	}
+
 	return strings.Join(split, "\n") + "\n"
 }
