@@ -72,7 +72,7 @@ func NewService(runnerService *runner.Service, templateMap TemplateMap) (*Servic
 }
 
 const TimeLimitHard = 5 * time.Second
-const SystemTimeLimit = 3 * time.Second
+const SystemTimeLimit = 5 * time.Second
 
 func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 
@@ -89,8 +89,6 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 
 	timedSystemContext, cancelTimedSetupContext := context.WithTimeout(ctx, SystemTimeLimit)
 	defer cancelTimedSetupContext()
-	timedUserContext, cancelTimedUserContext := context.WithTimeoutCause(ctx, caseTimeLimitHard, &Error{ErrorCode: StatusFailTimeoutHard, Wrap: nil})
-	defer cancelTimedUserContext()
 
 	ctx = context.WithValue(ctx, "request", req)
 	resp := Response{
@@ -155,9 +153,13 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		outputExpectedHashProcessor.Write(outputExpected)
 		outputExpectedHash := outputExpectedHashProcessor.Sum(nil)
 
+		timedCaseContext, cancelTimedCaseContext := context.WithTimeoutCause(ctx, caseTimeLimitHard, &Error{ErrorCode: StatusFailTimeoutHard, Wrap: nil})
+
 		hashOnly := false
 		timeStart := time.Now()
-		data, err := runnerContainer.GrpcClient.Test(timedUserContext, &protorin.TestContext{Source: input, OptHashOnly: &hashOnly})
+		data, err := runnerContainer.GrpcClient.Test(timedCaseContext, &protorin.TestContext{Source: input, OptHashOnly: &hashOnly})
+		cancelTimedCaseContext()
+
 		if err != nil {
 			grpcStatusCode, ok := status.FromError(err)
 			if ok && grpcStatusCode.Code() == codes.DeadlineExceeded {
@@ -177,8 +179,6 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 			Memory: 0,
 		}
 		resp.Result[index] = resultEntry
-		//log.Println(data.Result, data.Hash, timeElapseMs)
-		//log.Println(outputExpected)
 	}
 
 	if caseTimeExceedAtleastOnce {
