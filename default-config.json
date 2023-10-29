@@ -11,7 +11,7 @@
       "portInternal": 8888
     }
   },
-  "amqp_url": "amqp://root:password@127.0.0.1:5672/",
+  "amqp_url": "amqp://root:password@localhost:5672/",
   "concurrency": 8,
   "tick_delay": 250
 }
