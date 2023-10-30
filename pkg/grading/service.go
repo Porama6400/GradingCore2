@@ -72,7 +72,7 @@ func NewService(runnerService *runner.Service, templateMap TemplateMap) (*Servic
 }
 
 const TimeLimitHard = 5 * time.Second
-const SystemTimeLimit = 5 * time.Second
+const SystemTimeLimit = 10 * time.Second
 
 func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 
