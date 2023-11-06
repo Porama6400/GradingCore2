@@ -46,7 +46,9 @@ func (h *Handler) Compile(_ context.Context, src *protorin.Source) (*protorin.Co
 	command.Stderr = &buffer
 	err = command.Run()
 	dataBytes := buffer.Bytes()
-	result := protorin.CompileResult{Data: dataBytes}
+
+	success := err == nil
+	result := protorin.CompileResult{Data: dataBytes, Success: &success}
 
 	log.Println(string(dataBytes), err)
 	return &result, nil

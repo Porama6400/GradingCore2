@@ -134,7 +134,7 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 	if compile != nil && compile.Data != nil {
 		resp.CompileOutput = string(compile.Data)
 	}
-	if err != nil {
+	if err != nil || !*compile.Success {
 		fromError, ok := status.FromError(err)
 		if ok && fromError.Code() == codes.DeadlineExceeded {
 			return resp.WrapError(StatusFailCompilationTimeout, err)
