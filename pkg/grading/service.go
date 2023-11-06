@@ -56,6 +56,11 @@ type Service struct {
 	TemplateMap   TemplateMap
 }
 
+func (r *Response) WrapStatus(status StatusCode) (*Response, *Error) {
+	r.Status = status
+	return r, nil
+}
+
 func (r *Response) WrapError(status StatusCode, err error) (*Response, *Error) {
 	r.Status = status
 	return r, &Error{
@@ -134,7 +139,7 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		if ok && fromError.Code() == codes.DeadlineExceeded {
 			return resp.WrapError(StatusFailCompilationTimeout, err)
 		} else {
-			return resp.WrapError(StatusFailCompilation, err)
+			return resp.WrapStatus(StatusFailCompilation)
 		}
 	}
 
@@ -163,7 +168,7 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		if err != nil {
 			grpcStatusCode, ok := status.FromError(err)
 			if ok && grpcStatusCode.Code() == codes.DeadlineExceeded {
-				return resp.WrapError(StatusFailTimeoutHard, err)
+				return resp.WrapStatus(StatusFailTimeoutHard)
 			} else {
 				return resp.WrapError(StatusSystemFail, err)
 			}
