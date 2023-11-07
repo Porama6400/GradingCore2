@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"GradingCore2/pkg/grading"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -155,7 +156,10 @@ func (s *Service) Tick() error {
 func (s *Service) HandleDelivery(delivery *amqp.Delivery) error {
 	ctx := context.Background()
 	var req grading.Request
-	err := json.Unmarshal(delivery.Body, &req)
+	decoder := json.NewDecoder(bytes.NewBuffer(delivery.Body))
+	decoder.UseNumber()
+	err := decoder.Decode(&req)
+
 	if err != nil {
 		return err
 	}
