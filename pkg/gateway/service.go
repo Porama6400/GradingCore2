@@ -167,10 +167,6 @@ func (s *Service) HandleDelivery(delivery *amqp.Delivery) error {
 	grade, gradingError := s.GradingService.Grade(ctx, &req)
 	if gradingError != nil {
 		log.Println("grading error", gradingError)
-		nackError := delivery.Nack(false, true)
-		if nackError != nil {
-			log.Println("Nack error")
-		}
 		return err
 	}
 
