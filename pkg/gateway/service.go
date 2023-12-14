@@ -50,39 +50,39 @@ func NewService(amqpUrl string, concurrency int, gradingService *grading.Service
 func (s *Service) ConnectAmqp() error {
 	dial, err := amqp.Dial(s.AmqpUrl)
 	if err != nil {
-		return err
+		return fmt.Errorf("AMQP failed to dial server: %w", err)
 	}
 	s.AmqpConnection = dial
 
 	channel, err := dial.Channel()
 	if err != nil {
-		return err
+		return fmt.Errorf("AMQP failed to get channel %w", err)
 	}
 	s.AmqpChannel = channel
 
 	_, err = channel.QueueDeclare(RequestQueueName, true, false, false, false, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("AMQP failed to declare request queue: %w", err)
 	}
 
 	_, err = channel.QueueDeclare(ResponseQueueName, true, false, false, false, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("AMQP failed to declare response queue: %w", err)
 	}
 
 	err = channel.ExchangeDeclare(ExchangeName, amqp.ExchangeTopic, true, false, false, false, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("AMQP failed to declare exchange: %w", err)
 	}
 
 	err = channel.QueueBind(RequestQueueName, RoutingKeyRequest, ExchangeName, false, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("AMQP failed to bind request queue: %w", err)
 	}
 
 	err = channel.QueueBind(ResponseQueueName, RoutingKeyResponse, ExchangeName, false, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("AMQP failed to bind response queue: %w", err)
 	}
 
 	//err = channel.Qos(4, 0, false)
@@ -103,7 +103,7 @@ func (s *Service) Tick() error {
 	if s.AmqpConnection == nil || s.AmqpConnection.IsClosed() {
 		err := s.ConnectAmqp()
 		if err != nil {
-			return err
+			return fmt.Errorf("attempt to connect AMQP failed while ticking: %w", err)
 		}
 	}
 
@@ -118,7 +118,7 @@ func (s *Service) Tick() error {
 		msg, ok, err := s.AmqpChannel.Get(RequestQueueName, false)
 		if err != nil {
 			s.BackoffCounter = BackoffAmount
-			return err
+			return fmt.Errorf("dequeue failed: %w", err)
 		}
 		if !ok {
 			s.BackoffCounter = BackoffAmount
