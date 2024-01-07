@@ -9,6 +9,11 @@
       "id": "c",
       "image": "rin_c",
       "portInternal": 8888
+    },
+    "cpp": {
+      "id": "cpp",
+      "image": "rin_cpp",
+      "portInternal": 8888
     }
   },
   "amqp_url": "amqp://root:password@localhost:5672/",
