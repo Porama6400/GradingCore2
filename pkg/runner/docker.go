@@ -52,7 +52,6 @@ func (r *DockerRunner) createPortConfig(port int, portExt int) (nat.PortSet, nat
 func (r *DockerRunner) Start(ctx context.Context, request *ContainerStartRequest) (*ContainerInfo, error) {
 	slot := request.Slot
 	slotName := fmt.Sprintf("%s%d", Prefix, slot)
-
 	portSet, portMap := r.createPortConfig(request.PortInternal, request.PortExternal)
 	cfg := container.Config{
 		Hostname:     slotName,
@@ -64,7 +63,7 @@ func (r *DockerRunner) Start(ctx context.Context, request *ContainerStartRequest
 		PortBindings: portMap,
 		Resources: container.Resources{
 			Memory:   r.MemoryHardLimit * 1024 * 1024, // 100 MiB
-			NanoCPUs: int64(r.CpuHardLimit * 10e9),    // half a CPU
+			NanoCPUs: int64(r.CpuHardLimit * 1e9),     // half a CPU
 		},
 	}
 
