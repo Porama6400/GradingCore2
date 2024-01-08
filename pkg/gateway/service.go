@@ -185,7 +185,8 @@ func (s *Service) Publish(ctx context.Context, response *grading.Response) error
 	}
 	log.Println("res", string(marshal))
 	message := amqp.Publishing{
-		Body: marshal,
+		DeliveryMode: amqp.Persistent,
+		Body:         marshal,
 	}
 	err = s.AmqpChannel.PublishWithContext(ctx, ExchangeName, RoutingKeyResponse, false, false, message)
 	if err != nil {
