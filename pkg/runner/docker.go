@@ -15,17 +15,21 @@ import (
 const Prefix = "runner-"
 
 type DockerRunner struct {
-	Client *client.Client
+	Client          *client.Client
+	CpuHardLimit    float64
+	MemoryHardLimit int64
 }
 
-func NewDockerRunner() (*DockerRunner, error) {
+func NewDockerRunner(cpuHardLimit float64, memoryHardLimit int64) (*DockerRunner, error) {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}
 
 	return &DockerRunner{
-		Client: dockerClient,
+		Client:          dockerClient,
+		CpuHardLimit:    cpuHardLimit,
+		MemoryHardLimit: memoryHardLimit,
 	}, nil
 }
 
@@ -58,6 +62,10 @@ func (r *DockerRunner) Start(ctx context.Context, request *ContainerStartRequest
 	hostConfig := container.HostConfig{
 		Privileged:   false,
 		PortBindings: portMap,
+		Resources: container.Resources{
+			Memory:   r.MemoryHardLimit * 1024 * 1024, // 100 MiB
+			NanoCPUs: int64(r.CpuHardLimit * 10e9),    // half a CPU
+		},
 	}
 
 	createResponse, err := r.Client.ContainerCreate(ctx, &cfg, &hostConfig, nil, nil, slotName)

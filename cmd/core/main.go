@@ -8,16 +8,19 @@ import (
 	"GradingCore2/pkg/runner"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"time"
 )
 
 type Configuration struct {
-	TemplateMap grading.TemplateMap `json:"templates"`
-	AmqpUrl     string              `json:"amqp_url"`
-	Concurrency int                 `json:"concurrency"`
-	TickDelay   int                 `json:"tick_delay"`
+	TemplateMap     grading.TemplateMap `json:"templates"`
+	AmqpUrl         string              `json:"amqp_url"`
+	Concurrency     int                 `json:"concurrency"`
+	TickDelay       int                 `json:"tick_delay"`
+	CpuHardLimit    float64             `json:"cpu_hard_limit"`    // CPU limit in milli CPU core
+	MemoryHardLimit int64               `json:"memory_hard_limit"` // memory limit in MiB
 }
 
 func LoadConfig() (*Configuration, error) {
@@ -26,13 +29,21 @@ func LoadConfig() (*Configuration, error) {
 		return nil, err
 	}
 
-	var Config Configuration
-	err = json.Unmarshal(file, &Config)
+	var config Configuration
+	err = json.Unmarshal(file, &config)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Config, nil
+	if config.CpuHardLimit <= 0 {
+		return nil, fmt.Errorf("invalid CPU hard limit: %f", config.CpuHardLimit)
+	}
+
+	if config.MemoryHardLimit <= 0 {
+		return nil, fmt.Errorf("invalid memory hard limit: %d", config.MemoryHardLimit)
+	}
+
+	return &config, nil
 }
 
 func main() {
@@ -41,7 +52,7 @@ func main() {
 		panic(err)
 	}
 
-	runnerService, err := runner.NewService()
+	runnerService, err := runner.NewService(config.CpuHardLimit, config.MemoryHardLimit)
 	if err != nil {
 		panic(err)
 	}

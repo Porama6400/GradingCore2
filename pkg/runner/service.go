@@ -20,8 +20,8 @@ type Service struct {
 	Lock         sync.Mutex
 }
 
-func NewService() (*Service, error) {
-	runner, err := NewDockerRunner()
+func NewService(cpuHardLimit float64, memoryHardLimit int64) (*Service, error) {
+	runner, err := NewDockerRunner(cpuHardLimit, memoryHardLimit)
 	if err != nil {
 		return nil, err
 	}
