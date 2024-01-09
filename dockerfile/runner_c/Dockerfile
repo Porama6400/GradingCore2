@@ -13,6 +13,6 @@ WORKDIR /src
 ENV RIN_LISTEN=0.0.0.0:8888
 ENV RIN_SOURCE=main.c
 ENV RIN_TEST_INPUT=test.txt
-ENV RIN_CMD_COMPILE="gcc main.c -o main"
+ENV RIN_CMD_COMPILE="gcc main.c -lm -o main"
 ENV RIN_CMD_TEST="./main"
 CMD ["/bin/rin"]
