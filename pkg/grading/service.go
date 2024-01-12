@@ -198,7 +198,7 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		memoryExceedAtLeastOnce = memoryExceedAtLeastOnce || caseMemoryExceed
 
 		resultEntry := ResultCase{
-			Pass:   !caseTimeExceed && bytes.Equal(data.Hash, outputExpectedHash),
+			Pass:   !caseTimeExceed && !caseMemoryExceed && bytes.Equal(data.Hash, outputExpectedHash),
 			Hash:   base64.StdEncoding.EncodeToString(data.Hash),
 			Time:   timeElapse.Milliseconds(),
 			Memory: data.GetMemory(), // proto will default to 0
