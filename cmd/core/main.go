@@ -15,12 +15,14 @@ import (
 )
 
 type Configuration struct {
-	TemplateMap     grading.TemplateMap `json:"templates"`
-	AmqpUrl         string              `json:"amqp_url"`
-	Concurrency     int                 `json:"concurrency"`
-	TickDelay       int                 `json:"tick_delay"`
-	CpuHardLimit    float64             `json:"cpu_hard_limit"`    // CPU limit in milli CPU core
-	MemoryHardLimit int64               `json:"memory_hard_limit"` // memory limit in MiB
+	TemplateMap         grading.TemplateMap `json:"templates"`
+	AmqpUrl             string              `json:"amqp_url"`
+	Concurrency         int                 `json:"concurrency"`
+	TickPeriod          int                 `json:"tick_period"`
+	TimeLimitHardUser   int64               `json:"time_limit_hard_user"` // time in ms
+	TimeLimitHardSystem int64               `json:"time_limit_hard_system"`
+	MemoryLimitHard     int64               `json:"memory_limit_hard"` // memory limit in KiB
+	CpuLimitHard        float64             `json:"cpu_limit_hard"`    // CPU limit in core
 }
 
 func LoadConfig() (*Configuration, error) {
@@ -35,12 +37,12 @@ func LoadConfig() (*Configuration, error) {
 		return nil, err
 	}
 
-	if config.CpuHardLimit <= 0 {
-		return nil, fmt.Errorf("invalid CPU hard limit: %f", config.CpuHardLimit)
+	if config.CpuLimitHard <= 0 {
+		return nil, fmt.Errorf("invalid CPU hard limit: %f", config.CpuLimitHard)
 	}
 
-	if config.MemoryHardLimit <= 0 {
-		return nil, fmt.Errorf("invalid memory hard limit: %d", config.MemoryHardLimit)
+	if config.MemoryLimitHard <= 0 {
+		return nil, fmt.Errorf("invalid memory hard limit: %d", config.MemoryLimitHard)
 	}
 
 	return &config, nil
@@ -52,7 +54,7 @@ func main() {
 		panic(err)
 	}
 
-	runnerService, err := runner.NewService(config.CpuHardLimit, config.MemoryHardLimit)
+	runnerService, err := runner.NewService(config.CpuLimitHard, config.MemoryLimitHard)
 	if err != nil {
 		panic(err)
 	}
@@ -69,7 +71,7 @@ func main() {
 		}
 	}(runnerService, context.Background())
 
-	gradingService, err := grading.NewService(runnerService, config.TemplateMap)
+	gradingService, err := grading.NewService(runnerService, config.TemplateMap, config.TimeLimitHardUser, config.TimeLimitHardSystem, config.MemoryLimitHard)
 	if err != nil {
 		panic(err)
 	}
@@ -81,7 +83,7 @@ func main() {
 			if err != nil {
 				log.Println(err)
 			}
-			time.Sleep(time.Duration(config.TickDelay) * time.Millisecond)
+			time.Sleep(time.Duration(config.TickPeriod) * time.Millisecond)
 		}
 	}()
 

@@ -17,6 +17,10 @@
     }
   },
   "amqp_url": "amqp://root:password@localhost:5672/",
-  "concurrency": 8,
-  "tick_delay": 250
+  "concurrency": 1,
+  "tick_period": 250,
+  "time_limit_hard_user": 5000,
+  "time_limit_hard_system": 10000,
+  "memory_limit_hard": 200000,
+  "cpu_limit_hard": 0.8
 }

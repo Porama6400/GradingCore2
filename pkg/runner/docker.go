@@ -62,8 +62,8 @@ func (r *DockerRunner) Start(ctx context.Context, request *ContainerStartRequest
 		Privileged:   false,
 		PortBindings: portMap,
 		Resources: container.Resources{
-			Memory:   r.MemoryHardLimit * 1024 * 1024, // 100 MiB
-			NanoCPUs: int64(r.CpuHardLimit * 1e9),     // half a CPU
+			Memory:   r.MemoryHardLimit * 1024,
+			NanoCPUs: int64(r.CpuHardLimit * 1e9),
 		},
 	}
 

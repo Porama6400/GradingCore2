@@ -51,9 +51,12 @@ type Response struct {
 type TemplateMap map[string]*runner.ContainerTemplate
 
 type Service struct {
-	RunnerService *runner.Service
-	Fetcher       *fetcher.Service
-	TemplateMap   TemplateMap
+	RunnerService       *runner.Service
+	Fetcher             *fetcher.Service
+	TemplateMap         TemplateMap
+	TimeLimitHardUser   time.Duration
+	TimeLimitHardSystem time.Duration
+	MemoryLimitHard     int64
 }
 
 func (r *Response) WrapStatus(status StatusCode) (*Response, *Error) {
@@ -69,30 +72,40 @@ func (r *Response) WrapError(status StatusCode, err error) (*Response, *Error) {
 	}
 }
 
-func NewService(runnerService *runner.Service, templateMap TemplateMap) (*Service, error) {
+func NewService(runnerService *runner.Service, templateMap TemplateMap, timeLimitHardUser int64, timeLimitHardSystem int64, memoryLimitHard int64) (*Service, error) {
 	return &Service{
-		RunnerService: runnerService,
-		TemplateMap:   templateMap,
+		RunnerService:       runnerService,
+		TemplateMap:         templateMap,
+		TimeLimitHardUser:   time.Duration(timeLimitHardUser) * time.Millisecond,
+		TimeLimitHardSystem: time.Duration(timeLimitHardSystem) * time.Millisecond,
+		MemoryLimitHard:     memoryLimitHard,
 	}, nil
 }
 
-const TimeLimitHard = 5 * time.Second
-const SystemTimeLimit = 10 * time.Second
+//const TimeLimitHard = 5 * time.Second
+//const SystemTimeLimit = 10 * time.Second
+//const MemoryLimitSoft = 100 * 1000000
 
 func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 
 	caseTimeLimitSoft := time.Duration(req.Settings.TimeLimit) * time.Millisecond
 	if caseTimeLimitSoft == 0 {
-		caseTimeLimitSoft = TimeLimitHard
+		caseTimeLimitSoft = s.TimeLimitHardUser
 	}
 
 	caseTimeLimitHard := caseTimeLimitSoft + time.Second
-	if caseTimeLimitHard > TimeLimitHard {
-		caseTimeLimitHard = TimeLimitHard
+	if caseTimeLimitHard > s.TimeLimitHardUser {
+		caseTimeLimitHard = s.TimeLimitHardUser
 	}
+
+	memoryLimitSoft := int64(req.Settings.MemoryLimit)
+	if memoryLimitSoft <= 0 {
+		memoryLimitSoft = s.MemoryLimitHard
+	}
+
 	log.Println("grading", req.SourceUrl, " limits: ", caseTimeLimitSoft, caseTimeLimitHard)
 
-	timedSystemContext, cancelTimedSetupContext := context.WithTimeout(ctx, SystemTimeLimit)
+	timedSystemContext, cancelTimedSetupContext := context.WithTimeout(ctx, s.TimeLimitHardSystem)
 	defer cancelTimedSetupContext()
 
 	ctx = context.WithValue(ctx, "request", req)
@@ -120,7 +133,7 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		}
 	}()
 
-	containerStartSuccess, err := runnerContainer.Wait(SystemTimeLimit)
+	containerStartSuccess, err := runnerContainer.Wait(s.TimeLimitHardSystem)
 	if !containerStartSuccess {
 		return resp.WrapError(StatusSystemFailContainerPing, err)
 	}
@@ -143,7 +156,9 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		}
 	}
 
-	caseTimeExceedAtLeastOnce := false
+	timeExceedAtLeastOnce := false
+	memoryExceedAtLeastOnce := false
+
 	for index, test := range req.TestCase {
 		input, err := s.Fetcher.Get(test.Input)
 		if err != nil {
@@ -174,8 +189,13 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 			}
 		}
 		timeElapse := time.Now().Sub(timeStart)
+		memoryConsumed := data.GetMemory()
+
 		caseTimeExceed := timeElapse > caseTimeLimitSoft
-		caseTimeExceedAtLeastOnce = caseTimeExceedAtLeastOnce || caseTimeExceed
+		caseMemoryExceed := memoryConsumed > 0 && memoryConsumed > memoryLimitSoft
+
+		timeExceedAtLeastOnce = timeExceedAtLeastOnce || caseTimeExceed
+		memoryExceedAtLeastOnce = memoryExceedAtLeastOnce || caseMemoryExceed
 
 		resultEntry := ResultCase{
 			Pass:   !caseTimeExceed && bytes.Equal(data.Hash, outputExpectedHash),
@@ -187,8 +207,10 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		resp.Result[index] = resultEntry
 	}
 
-	if caseTimeExceedAtLeastOnce {
+	if timeExceedAtLeastOnce {
 		resp.Status = StatusFailTimeout
+	} else if memoryExceedAtLeastOnce {
+		resp.Status = StatusFailMemory
 	} else {
 		resp.Status = StatusCompleted
 	}
