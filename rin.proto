@@ -23,6 +23,9 @@ message TestContext {
 message TestResult {
   required bytes hash = 1;
   optional bytes result = 2;
+  optional int64 time_user = 3;
+  optional int64 time_system = 4;
+  optional int64 memory = 5;
 }
 
 message CompileResult {

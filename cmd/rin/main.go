@@ -1,6 +1,7 @@
 package main
 
 import (
+	"GradingCore2/pkg/platform"
 	"GradingCore2/pkg/protorin"
 	"GradingCore2/pkg/scrubber"
 	"bytes"
@@ -83,6 +84,11 @@ func (h *Handler) Test(_ context.Context, src *protorin.TestContext) (*protorin.
 	command.Stderr = &buffer
 	err = command.Run()
 
+	usage, reportErr := platform.ReportUsage()
+	if reportErr != nil {
+		log.Println(usage)
+	}
+
 	dataBytes := buffer.Bytes()
 	dataBytes = scrubber.Scrub(dataBytes)
 	hashAlgo := sha256.New()
@@ -92,6 +98,12 @@ func (h *Handler) Test(_ context.Context, src *protorin.TestContext) (*protorin.
 	result := protorin.TestResult{Hash: hashBytes}
 	if !src.GetOptHashOnly() {
 		result.Result = dataBytes
+	}
+
+	if usage != nil {
+		result.Memory = &usage.MaxResidentSize
+		result.TimeUser = &usage.TimeUser
+		result.TimeSystem = &usage.TimeSystem
 	}
 
 	log.Println(string(dataBytes), err)

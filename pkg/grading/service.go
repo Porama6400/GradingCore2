@@ -143,7 +143,7 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		}
 	}
 
-	caseTimeExceedAtleastOnce := false
+	caseTimeExceedAtLeastOnce := false
 	for index, test := range req.TestCase {
 		input, err := s.Fetcher.Get(test.Input)
 		if err != nil {
@@ -175,18 +175,19 @@ func (s *Service) Grade(ctx context.Context, req *Request) (*Response, *Error) {
 		}
 		timeElapse := time.Now().Sub(timeStart)
 		caseTimeExceed := timeElapse > caseTimeLimitSoft
-		caseTimeExceedAtleastOnce = caseTimeExceedAtleastOnce || caseTimeExceed
+		caseTimeExceedAtLeastOnce = caseTimeExceedAtLeastOnce || caseTimeExceed
 
 		resultEntry := ResultCase{
 			Pass:   !caseTimeExceed && bytes.Equal(data.Hash, outputExpectedHash),
 			Hash:   base64.StdEncoding.EncodeToString(data.Hash),
 			Time:   timeElapse.Milliseconds(),
-			Memory: 0,
+			Memory: data.GetMemory(), // proto will default to 0
 		}
+
 		resp.Result[index] = resultEntry
 	}
 
-	if caseTimeExceedAtleastOnce {
+	if caseTimeExceedAtLeastOnce {
 		resp.Status = StatusFailTimeout
 	} else {
 		resp.Status = StatusCompleted
